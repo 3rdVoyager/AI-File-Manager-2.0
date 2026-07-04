@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { renderDonut, timeAgo, formatDate } from '../components/ui.js';
-import { escapeHtml } from './file-actions.js';
+import { escapeAttr, escapeHtml } from './file-actions.js';
 
 const COLORS = ['#6366f1', '#3b82f6', '#22c55e', '#f97316', '#eab308', '#ec4899', '#a855f7'];
 
@@ -37,8 +37,8 @@ function renderStats(d) {
   grid.innerHTML = `
     <div class="stat-card"><div class="stat-icon purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div>
       <div><div class="stat-value">${d.files_analyzed.toLocaleString()}</div><div class="stat-label">Files Analyzed</div><div class="stat-sub">${d.files_delta >= 0 ? '+' : ''}${d.files_delta} since last scan</div></div></div>
-    <div class="stat-card"><div class="stat-icon blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
-      <div><div class="stat-value">${d.projects_detected}</div><div class="stat-label">Projects Detected</div><div class="stat-sub">${d.projects_delta ? '+' + d.projects_delta + ' new' : 'from scans'}</div></div></div>
+    <div class="stat-card"><div class="stat-icon blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+      <div><div class="stat-value">${d.rename_suggestions || 0}</div><div class="stat-label">Rename Suggestions</div><div class="stat-sub">from AI scans</div></div></div>
     <div class="stat-card"><div class="stat-icon orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V4a2 2 0 0 1 2-2h12"/></svg></div>
       <div><div class="stat-value">${d.duplicate_files}</div><div class="stat-label">Duplicate Files</div><div class="stat-sub">${d.duplicate_human || '0 B'}</div></div></div>
     <div class="stat-card"><div class="stat-icon green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
@@ -132,5 +132,9 @@ function renderRecentScans(scans) {
       <td>${(s.files_found || 0).toLocaleString()}</td>
       <td>${escapeHtml(s.size_human || '—')}</td>
       <td>${escapeHtml(formatDate(s.completed_at || s.started_at))}</td>
-      <td><button class="btn-icon btn-sm" title="Browse analyzed files" data-view="files" aria-label="Browse analyzed files">View</button></td>    </tr>`).join('');
+      <td>
+        <button class="btn-icon btn-sm" title="Browse analyzed files" data-view="files" aria-label="Browse analyzed files">View</button>
+        <button class="btn btn-sm btn-secondary" type="button" data-scan-path="${escapeAttr(s.root_path)}">Scan Again</button>
+      </td>
+    </tr>`).join('');
 }

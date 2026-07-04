@@ -108,7 +108,7 @@ function renderFilesTable(data) {
 
   if (!data.files?.length) {
 
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">No files yet. Run a scan first.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No files yet. Run a scan first.</td></tr>';
 
     return;
 
@@ -131,8 +131,6 @@ function renderFilesTable(data) {
       <td>${escapeHtml(f.importance ?? '—')}</td>
 
       <td>${actionBadge(f.action)}</td>
-
-      <td>${escapeHtml(f.project || '—')}</td>
 
     </tr>`).join('');
 
@@ -286,6 +284,159 @@ export async function loadTrashCandidates() {
 
   }
 
+}
+
+
+function updateEmptyFoldersButton(hasDirectories = false) {
+  const count = document.querySelectorAll('#view-empty-folders input[type=checkbox][data-path]:checked').length;
+  const btn = document.getElementById('empty-folders-delete-btn');
+  if (btn) {
+    // For debugging: enable if there are directories, regardless of checkbox selection
+    btn.disabled = !hasDirectories && count === 0;
+    btn.textContent = count ? `Remove Selected (${count})` : 'Remove Selected';
+  }
+}
+
+
+function wireEmptyFolderSelection() {
+  const boxes = document.querySelectorAll('#view-empty-folders input[type=checkbox][data-path]');
+  boxes.forEach(cb => {
+    cb.addEventListener('change', () => updateEmptyFoldersButton());
+  });
+  
+  const selectAll = document.getElementById('empty-folders-select-all');
+  if (selectAll) {
+    selectAll.checked = false;
+    selectAll.onclick = () => {
+      boxes.forEach(cb => { cb.checked = selectAll.checked; });
+      updateEmptyFoldersButton();
+    };
+  }
+  updateEmptyFoldersButton();
+}
+
+
+export async function loadEmptyFolders(path = null) {
+  try {
+    const data = await api.getEmptyDirectories(path);
+    const tbody = document.getElementById('empty-folders-tbody');
+    const summary = document.getElementById('empty-folders-summary');
+    if (!tbody) return;
+
+    const directories = data.directories || [];
+    const scanType = path ? `in ${path.split(/[\\/]/).pop()}` : 'in scanned locations';
+    if (summary) summary.textContent = `${directories.length.toLocaleString()} empty folder(s) found ${scanType}`;
+
+    tbody.innerHTML = directories.map(d => `
+      <tr>
+        <td><input type="checkbox" data-path="${escapeAttr(d.path)}" aria-label="Select ${escapeAttr(d.name)}"></td>
+        <td>${escapeHtml(d.name)}</td>
+        <td class="mono path-cell" title="${escapeAttr(d.path)}">${escapeHtml(truncatePath(d.path, 90))}</td>
+        <td class="mono path-cell" title="${escapeAttr(d.root_path)}">${escapeHtml(truncatePath(d.root_path, 60))}</td>
+      </tr>`
+    ).join('') || `<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted)">No empty folders found ${scanType}.</td></tr>`;
+
+    wireEmptyFolderSelection();
+    updateEmptyFoldersButton(directories.length > 0);
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+
+export async function deleteSelectedEmptyFolders() {
+  const paths = getSelectedPaths('#view-empty-folders');
+  if (!paths.length) {
+    showToast('Select at least one empty folder', 'error');
+    return;
+  }
+  if (!confirm(`Remove ${paths.length} empty folder(s)? Only folders that are still empty will be removed.`)) return;
+
+  try {
+    const data = await api.deleteEmptyDirectories(paths);
+    const failures = (data.results || []).filter(r => !r.success).length;
+    if (data.removed_count) showToast(`${data.removed_count} empty folder(s) removed`, 'success');
+    if (failures) showToast(`${failures} folder(s) could not be removed`, 'error');
+    await loadEmptyFolders();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+
+function updateRenameButton() {
+  const count = document.querySelectorAll('#view-rename-tool input[type=checkbox][data-path]:checked').length;
+  const btn = document.getElementById('rename-apply-btn');
+  if (btn) {
+    btn.disabled = count === 0;
+    btn.textContent = count ? `Apply Selected (${count})` : 'Apply Selected';
+  }
+}
+
+
+function wireRenameSelection() {
+  const boxes = document.querySelectorAll('#view-rename-tool input[type=checkbox][data-path]');
+  boxes.forEach(cb => {
+    cb.addEventListener('change', () => updateRenameButton());
+  });
+
+  const selectAll = document.getElementById('rename-select-all');
+  if (selectAll) {
+    selectAll.checked = false;
+    selectAll.onclick = () => {
+      boxes.forEach(cb => { cb.checked = selectAll.checked; });
+      updateRenameButton();
+    };
+  }
+  updateRenameButton();
+}
+
+
+export async function loadRenameSuggestions() {
+  try {
+    const data = await api.getRenameSuggestions();
+    const tbody = document.getElementById('rename-tbody');
+    const summary = document.getElementById('rename-summary');
+    if (!tbody) return;
+
+    const suggestions = data.suggestions || [];
+    if (summary) summary.textContent = `${suggestions.length.toLocaleString()} rename suggestion(s) from scans`;
+
+    tbody.innerHTML = suggestions.map(s => `
+      <tr>
+        <td><input type="checkbox" data-path="${escapeAttr(s.path)}" aria-label="Select ${escapeAttr(s.filename)}"></td>
+        <td>${fileNameCell(s.filename, s.path)}<div class="mono path-cell" title="${escapeAttr(s.path)}">${escapeHtml(truncatePath(s.path, 72))}</div></td>
+        <td><strong>${escapeHtml(s.suggested_filename)}</strong><div class="mono path-cell" title="${escapeAttr(s.target_path)}">${escapeHtml(truncatePath(s.target_path, 72))}</div></td>
+        <td>${escapeHtml(s.rename_reason || s.summary || 'Clearer document name')}</td>
+        <td>${escapeHtml(s.rename_confidence)}%</td>
+      </tr>`
+    ).join('') || '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No rename suggestions yet. Run a scan with AI enabled to find poorly named documents.</td></tr>';
+
+    wireRenameSelection();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+
+export async function applySelectedRenames() {
+  const paths = getSelectedPaths('#view-rename-tool');
+  if (!paths.length) {
+    showToast('Select at least one rename suggestion', 'error');
+    return;
+  }
+  if (!confirm(`Rename ${paths.length} document(s)? Existing files will not be overwritten.`)) return;
+
+  try {
+    const data = await api.applyRenameSuggestions(paths);
+    const failures = (data.results || []).filter(r => !r.success).length;
+    if (data.renamed_count) showToast(`${data.renamed_count} document(s) renamed`, 'success');
+    if (failures) showToast(`${failures} rename(s) could not be applied`, 'error');
+    await loadRenameSuggestions();
+    await loadFiles();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
 }
 
 

@@ -949,3 +949,40 @@
   color: var(--text-secondary);
   font-size: 12px;
 }
+
+/* Sidebar Scan Progress */
+.sidebar-progress {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--accent-dim);
+}
+
+.sidebar-progress .progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.sidebar-progress .progress-bar-mini {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.sidebar-progress .btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.sidebar-progress .btn-link:hover {
+  color: var(--accent-hover);
+}

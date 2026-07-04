@@ -12,6 +12,15 @@ from backend.providers.groq_limiter import GroqRateLimitError
 from backend.services import query_service
 
 
+def wait_for_scan(client: TestClient, scan_id: int) -> dict:
+    for _ in range(20):
+        status = client.get(f"/api/scan/{scan_id}").json()
+        if status["status"] in {"completed", "failed", "cancelled"}:
+            return status
+        time.sleep(0.3)
+    return client.get(f"/api/scan/{scan_id}").json()
+
+
 def test_status_and_dashboard():
     client = TestClient(create_app())
     assert client.get("/api/status").status_code == 200
@@ -31,15 +40,38 @@ def test_scan_small_folder():
         Path(tmp, "sample.txt").write_text("content", encoding="utf-8")
         client = TestClient(create_app())
         scan_id = client.post("/api/scan", json={"path": tmp}).json()["scan_id"]
-        for _ in range(20):
-            s = client.get(f"/api/scan/{scan_id}").json()
-            assert "ai_status" in s
-            assert "ai_wait_seconds" in s
-            if s["status"] == "completed":
-                break
-            time.sleep(0.3)
+        s = wait_for_scan(client, scan_id)
+        assert "ai_status" in s
+        assert "ai_wait_seconds" in s
+        assert s["status"] == "completed"
         files = client.get("/api/files").json()
         assert files["total"] >= 1
+
+
+def test_rescan_removes_files_deleted_outside_app():
+    with tempfile.TemporaryDirectory() as tmp:
+        keep_path = Path(tmp, "keep.txt")
+        removed_path = Path(tmp, "removed.txt")
+        keep_path.write_text("keep", encoding="utf-8")
+        removed_path.write_text("remove", encoding="utf-8")
+        client = TestClient(create_app())
+
+        first_scan_id = client.post("/api/scan", json={"path": tmp}).json()["scan_id"]
+        assert wait_for_scan(client, first_scan_id)["status"] == "completed"
+
+        removed_norm = str(removed_path.resolve())
+        keep_norm = str(keep_path.resolve())
+        initial_paths = {f["path"] for f in client.get("/api/files").json()["files"]}
+        assert removed_norm in initial_paths
+        assert keep_norm in initial_paths
+
+        removed_path.unlink()
+        second_scan_id = client.post("/api/scan", json={"path": tmp}).json()["scan_id"]
+        assert wait_for_scan(client, second_scan_id)["status"] == "completed"
+
+        rescanned_paths = {f["path"] for f in client.get("/api/files").json()["files"]}
+        assert removed_norm not in rescanned_paths
+        assert keep_norm in rescanned_paths
 
 
 def test_settings_save():
@@ -84,3 +116,20 @@ def test_query_reports_rate_limited_keyword_fallback(monkeypatch):
     assert body["method"] == "keyword"
     assert body["rate_limited"] is True
     assert "Groq rate limit" in body["message"]
+
+def test_scan_in_background():
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, "background_sample.txt").write_text("content", encoding="utf-8")
+        client = TestClient(create_app())
+        scan_id = client.post("/api/scan", json={"path": tmp, "run_in_background": True}).json()["scan_id"]
+
+        # Assert that the scan starts in the background and is running
+        initial_status = client.get(f"/api/scan/{scan_id}").json()
+        assert initial_status["status"] == "running"
+
+        # Wait for the scan to complete
+        s = wait_for_scan(client, scan_id)
+        assert s["status"] == "completed"
+        
+        files = client.get("/api/files").json()
+        assert files["total"] >= 1

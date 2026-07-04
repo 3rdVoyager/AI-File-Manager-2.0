@@ -6,6 +6,7 @@ export const state = {
   currentView: 'dashboard',
   scanId: null,
   scanPoll: null,
+  scanInBackground: false,
 };
 
 export function setView(name) {

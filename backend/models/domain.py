@@ -24,6 +24,9 @@ class AnalysisResult:
     lifecycle: str = "Unknown"
     action: str = "Review"
     reasoning: str = ""
+    suggested_filename: str = ""
+    rename_reason: str = ""
+    rename_confidence: int = 0
     requires_review: bool = False
     duplicate_group: str = ""
     prefiltered: bool = False

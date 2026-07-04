@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { closeModal } from './components/ui.js';
+import { openModal, closeModal } from './components/ui.js';
 
 import { state, setView, syncAiBanner } from './state.js';
 
@@ -7,13 +7,13 @@ import { refreshDashboard } from './views/dashboard.js';
 
 import { loadSettings, saveSettings, testConnection, completeSetup, skipSetup, initResetModal, quitApp } from './views/settings.js';
 
-import { loadFiles, loadLargeFiles, loadRecentFiles, loadTrashCandidates, initFilesSort, deleteSelectedFiles, deleteSelectedTrash, deleteAllTrash, deleteSelectedLarge, deleteSelectedRecent } from './views/files.js';
+import { loadFiles, loadLargeFiles, loadRecentFiles, loadTrashCandidates, loadEmptyFolders, loadRenameSuggestions, initFilesSort, deleteSelectedFiles, deleteSelectedTrash, deleteAllTrash, deleteSelectedLarge, deleteSelectedRecent, deleteSelectedEmptyFolders, applySelectedRenames } from './views/files.js';
 
 import { bindFileLinks, initDeleteModal } from './views/file-actions.js';
 
-import { loadProjects, loadDuplicates, loadReports, saveReport, loadQueries } from './views/other.js';
+import { loadDuplicates, loadScans } from './views/other.js';
 
-import { openFolderPicker, selectFolder, cancelScan, runQuery } from './views/scan.js';
+import { openFolderPicker, selectFolder, cancelScan, runQuery, startScan } from './views/scan.js';
 
 
 
@@ -31,13 +31,13 @@ function greeting() {
 
 const VIEW_TITLES = {
   files: ['All Files', 'Browse, search, and act on analyzed files.'],
-  projects: ['Projects', 'Review files grouped by detected project.'],
   duplicates: ['Duplicates', 'Compare duplicate groups before deleting anything.'],
-  large: ['Large Files', 'Find the files using the most space.'],
+  large: ['Large Files', 'Find the files taking up the most space.'],
   recent: ['Recent Files', 'Review files changed most recently.'],
   trash: ['Trash Candidates', 'Review cleanup recommendations before deleting.'],
-  queries: ['Queries', 'Review recent natural-language searches.'],
-  reports: ['Reports', 'Save and review scan summaries.'],
+  'empty-folders': ['Empty Folders', 'Delete folders that are completely empty.'],
+  'rename-tool': ['Rename Tool', 'Review AI filename suggestions from scans.'],
+  scans: ['Recent Scans', 'Review previous scans or run one again.'],
   settings: ['Settings', 'Manage AI, appearance, and local data.'],
 };
 
@@ -174,8 +174,6 @@ async function onViewChange(view) {
 
     case 'files': await loadFiles(); break;
 
-    case 'projects': await loadProjects(); break;
-
     case 'duplicates': await loadDuplicates(); break;
 
     case 'large': await loadLargeFiles(); break;
@@ -184,9 +182,11 @@ async function onViewChange(view) {
 
     case 'trash': await loadTrashCandidates(); break;
 
-    case 'queries': await loadQueries(); break;
+    case 'empty-folders': await loadEmptyFolders(); break;
 
-    case 'reports': await loadReports(); break;
+    case 'rename-tool': await loadRenameSuggestions(); break;
+
+    case 'scans': await loadScans(); break;
 
     case 'settings': await loadSettings(); break;
 
@@ -267,13 +267,27 @@ async function init() {
 
 
 
-  document.getElementById('scans-tbody')?.addEventListener('click', (e) => {
+  function handleScanTableClick(e) {
+
+    const scanBtn = e.target.closest('[data-scan-path]');
+
+      if (scanBtn) {
+
+        startScan(scanBtn.dataset.scanPath, false);
+
+      return;
+
+    }
 
     const btn = e.target.closest('[data-view]');
 
     if (btn) onViewChange(btn.dataset.view);
 
-  });
+  }
+
+  document.getElementById('scans-tbody')?.addEventListener('click', handleScanTableClick);
+
+  document.getElementById('recent-scans-tbody')?.addEventListener('click', handleScanTableClick);
 
 
 
@@ -290,6 +304,14 @@ async function init() {
   });
 
   document.getElementById('cancel-scan-btn')?.addEventListener('click', cancelScan);
+  document.getElementById('background-scan-btn')?.addEventListener('click', () => { 
+    state.scanInBackground = true;
+    closeModal('progress-modal');
+  });
+
+  document.getElementById('sidebar-show-scan')?.addEventListener('click', () => {
+    openModal('progress-modal');
+  });
 
   document.getElementById('settings-save')?.addEventListener('click', saveSettings);
 
@@ -298,8 +320,6 @@ async function init() {
   document.getElementById('setup-save')?.addEventListener('click', completeSetup);
 
   document.getElementById('setup-skip')?.addEventListener('click', skipSetup);
-
-  document.getElementById('save-report-btn')?.addEventListener('click', saveReport);
 
   bindFileLinks(document.body);
 
@@ -344,6 +364,11 @@ async function init() {
   document.getElementById('trash-delete-all-btn')?.addEventListener('click', deleteAllTrash);
   document.getElementById('large-delete-btn')?.addEventListener('click', deleteSelectedLarge);
   document.getElementById('recent-delete-btn')?.addEventListener('click', deleteSelectedRecent);
+  document.getElementById('empty-folders-delete-btn')?.addEventListener('click', deleteSelectedEmptyFolders);
+  document.getElementById('empty-folders-scan-btn')?.addEventListener('click', () => openFolderPicker('empty-folders'));
+  document.getElementById('duplicates-refresh-btn')?.addEventListener('click', loadDuplicates);
+  document.getElementById('rename-refresh-btn')?.addEventListener('click', loadRenameSuggestions);
+  document.getElementById('rename-apply-btn')?.addEventListener('click', applySelectedRenames);
   document.getElementById('quit-btn')?.addEventListener('click', quitApp);
   initResetModal();
 

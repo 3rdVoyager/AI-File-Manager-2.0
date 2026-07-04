@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -50,6 +51,9 @@ def _analysis_from_dict(d: dict, meta: fs.FileMetadata) -> AnalysisResult:
         lifecycle=d.get("lifecycle", "Unknown"),
         action=d.get("action", "Review"),
         reasoning=d.get("reasoning", ""),
+        suggested_filename=d.get("suggested_filename", ""),
+        rename_reason=d.get("rename_reason", ""),
+        rename_confidence=d.get("rename_confidence", 0),
         requires_review=d.get("requires_review", False),
         prefiltered=d.get("prefiltered", False),
         size_bytes=meta.size_bytes,
@@ -76,19 +80,23 @@ def _persist_file(scan_id: int, meta: fs.FileMetadata, analysis: AnalysisResult,
         conn.execute(
             """INSERT INTO analyses (file_id, summary, category, subcategory, tags_json, project,
                importance, sentimental_value, confidence, lifecycle, action, reasoning,
+               suggested_filename, rename_reason, rename_confidence,
                requires_review, prefiltered, model_used, analyzed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(file_id) DO UPDATE SET
                  summary=excluded.summary, category=excluded.category, subcategory=excluded.subcategory,
                  tags_json=excluded.tags_json, project=excluded.project, importance=excluded.importance,
                  sentimental_value=excluded.sentimental_value, confidence=excluded.confidence,
                  lifecycle=excluded.lifecycle, action=excluded.action, reasoning=excluded.reasoning,
+                 suggested_filename=excluded.suggested_filename, rename_reason=excluded.rename_reason,
+                 rename_confidence=excluded.rename_confidence,
                  requires_review=excluded.requires_review,
                  prefiltered=excluded.prefiltered, model_used=excluded.model_used, analyzed_at=excluded.analyzed_at""",
             (file_id, analysis.summary, analysis.category, analysis.subcategory,
              json.dumps(analysis.tags), analysis.project, analysis.importance,
              analysis.sentimental_value, analysis.confidence, analysis.lifecycle,
-             analysis.action, analysis.reasoning, int(analysis.requires_review), int(analysis.prefiltered),
+             analysis.action, analysis.reasoning, analysis.suggested_filename, analysis.rename_reason,
+             analysis.rename_confidence, int(analysis.requires_review), int(analysis.prefiltered),
              model, utc_now()),
         )
         conn.execute(
@@ -104,6 +112,41 @@ def _persist_file(scan_id: int, meta: fs.FileMetadata, analysis: AnalysisResult,
                     (file_id, proj["id"]),
                 )
         return file_id
+
+
+def _canonical_path(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _path_is_within_root(path: str, root_path: str) -> bool:
+    try:
+        root = _canonical_path(root_path)
+        return os.path.commonpath([_canonical_path(path), root]) == root
+    except (OSError, ValueError):
+        return False
+
+
+def _prune_stale_files(root_path: str, current_paths: list[str]) -> int:
+    current = {_canonical_path(path) for path in current_paths}
+    stale_ids: list[int] = []
+
+    with database.db() as conn:
+        rows = conn.execute("SELECT id, path FROM files").fetchall()
+        for row in rows:
+            if _path_is_within_root(row["path"], root_path) and _canonical_path(row["path"]) not in current:
+                stale_ids.append(row["id"])
+
+        if stale_ids:
+            placeholders = ",".join("?" * len(stale_ids))
+            conn.execute(f"DELETE FROM files WHERE id IN ({placeholders})", tuple(stale_ids))
+            conn.execute(
+                """DELETE FROM projects
+                   WHERE NOT EXISTS (
+                     SELECT 1 FROM file_projects WHERE file_projects.project_id = projects.id
+                   )"""
+            )
+
+    return len(stale_ids)
 
 
 def _is_cancel_requested(scan_id: int) -> bool:
@@ -197,6 +240,7 @@ async def _process_ai_batches(
 
 
 def _run_scan(scan_id: int, root_path: str) -> None:
+    database.close_db()
     settings = load_settings()
     hash_seen: dict[str, str] = {}
     loop = asyncio.new_event_loop()
@@ -294,6 +338,10 @@ def _run_scan(scan_id: int, root_path: str) -> None:
                 _mark_cancelled(scan_id)
                 return
 
+        stale_count = _prune_stale_files(root_path, paths)
+        if stale_count:
+            logger.info("Pruned %s stale file rows under %s", stale_count, root_path)
+
         rebuild_duplicates()
         regenerate_recommendations()
 
@@ -341,20 +389,21 @@ def _guess_category(ext: str) -> str:
     return mapping.get(ext.lower(), "Other")
 
 
-def start_scan(root_path: str, name: Optional[str] = None) -> int:
+def start_scan(root_path: str, name: Optional[str] = None, run_in_background: bool = False) -> int:
     root = fs.normalize_path(root_path)
     if not Path(root).is_dir():
         raise ValueError(f"Not a directory: {root_path}")
 
     scan_name = name or Path(root).name
+    initial_status_in_db = 'running' if run_in_background else 'pending'
     scan_id = database.execute(
-        """INSERT INTO scans (name, root_path, status, started_at) VALUES (?, ?, 'pending', ?)""",
-        (scan_name, root, utc_now()),
+        """INSERT INTO scans (name, root_path, status, started_at) VALUES (?, ?, ?, ?)""",
+        (scan_name, root, initial_status_in_db, utc_now()),
     )
 
     with _scan_lock:
         _active_scans[scan_id] = {
-            "status": "pending", "progress": 0, "files_found": 0,
+            "status": "running", "progress": 0, "files_found": 0,
             "files_processed": 0, "current_file": "", "cancel_requested": False, "error": "",
             "ai_status": "idle", "ai_pause_reason": "", "ai_resume_at": "", "ai_wait_seconds": 0,
         }

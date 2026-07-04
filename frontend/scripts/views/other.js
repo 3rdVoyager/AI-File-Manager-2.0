@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 
-import { showToast, timeAgo } from '../components/ui.js';
+import { formatDate, showToast } from '../components/ui.js';
 
 import { escapeAttr, escapeHtml, fileNameCell, truncatePath, promptDelete } from './file-actions.js';
 
@@ -30,48 +30,6 @@ function formatModified(ts) {
 
 }
 
-
-
-export async function loadProjects() {
-
-  try {
-
-    const data = await api.getProjects();
-
-    const grid = document.getElementById('projects-grid');
-
-    if (!grid) return;
-
-    const projects = data.projects || [];
-
-    if (!projects.length) {
-
-      grid.innerHTML = '<div class="empty-state"><h3>No projects detected</h3><p>Scan folders with code or documents to detect projects.</p></div>';
-
-      return;
-
-    }
-
-    grid.innerHTML = projects.map(p => `
-
-      <div class="project-card">
-
-        <h3>${escapeHtml(p.name)}</h3>
-
-        <p>${escapeHtml(p.file_count)} files · ${escapeHtml(p.size_human)}</p>
-
-      </div>`).join('');
-
-  } catch (e) {
-
-    showToast(e.message, 'error');
-
-  }
-
-}
-
-
-
 export async function loadDuplicates() {
 
   try {
@@ -80,9 +38,13 @@ export async function loadDuplicates() {
 
     const el = document.getElementById('duplicates-list');
 
+    const summary = document.getElementById('duplicates-summary');
+
     if (!el) return;
 
     const groups = data.groups || [];
+
+    if (summary) summary.textContent = `${groups.length.toLocaleString()} duplicate group(s) found`;
 
     if (!groups.length) {
 
@@ -184,89 +146,38 @@ export async function loadDuplicates() {
 
 
 
-export async function loadReports() {
+export async function loadScans() {
 
   try {
 
-    const data = await api.getReports();
+    const data = await api.getScans();
 
-    const tbody = document.getElementById('reports-tbody');
+    const tbody = document.getElementById('recent-scans-tbody');
 
     if (!tbody) return;
 
-    const reports = data.reports || [];
+    const scans = data.scans || [];
 
-    tbody.innerHTML = reports.map(r => `
+    let scansHtml = '';
 
-      <tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.file_count)} files</td><td>${r.saved_at ? new Date(r.saved_at).toLocaleString() : '—'}</td></tr>`
-
-    ).join('') || '<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-muted)">No saved reports</td></tr>';
-
-  } catch (e) {
-
-    showToast(e.message, 'error');
-
-  }
-
-}
-
-
-
-export async function saveReport() {
-
-  const name = prompt('Report name:', `report_${Date.now()}`);
-
-  if (!name) return;
-
-  try {
-
-    await api.saveReport(name);
-
-    showToast('Report saved', 'success');
-
-    await loadReports();
-
-  } catch (e) {
-
-    showToast(e.message, 'error');
-
-  }
-
-}
-
-
-
-export async function loadQueries() {
-
-  const el = document.getElementById('queries-list');
-
-  if (!el) return;
-
-  try {
-
-    const data = await api.getHistory();
-
-    const queries = (data.history || []).filter(h => h.event_type === 'query_executed');
-
-    if (!queries.length) {
-
-      el.innerHTML = '<div class="empty-state"><p>Use the AI toggle in All Files search to ask questions about your files.</p></div>';
-
-      return;
-
+    if (scans.length) {
+      scansHtml = scans.map(s => `
+        <tr>
+          <td>${escapeHtml(s.name)}</td>
+          <td class="mono">${escapeHtml(s.root_path)}</td>
+          <td>${(s.files_found || 0).toLocaleString()}</td>
+          <td>${escapeHtml(s.size_human || '—')}</td>
+          <td>${escapeHtml(formatDate(s.completed_at || s.started_at))}</td>
+          <td>
+            <button class="btn-icon btn-sm" title="Browse analyzed files" data-view="files" aria-label="Browse analyzed files">View</button>
+            <button class="btn btn-sm btn-secondary" type="button" data-scan-path="${escapeAttr(s.root_path)}">Scan Again</button>
+          </td>
+        </tr>`
+      ).join('');
+    } else {
+      scansHtml = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">No scans yet</td></tr>';
     }
-
-    el.innerHTML = `<ul class="activity-list">${queries.map(q => `
-
-      <li class="activity-item">
-
-        <span class="activity-dot"></span>
-
-        <div style="flex:1"><div>${escapeHtml(q.description)}</div></div>
-
-        <span class="activity-time">${escapeHtml(timeAgo(q.created_at))}</span>
-
-      </li>`).join('')}</ul>`;
+    tbody.innerHTML = scansHtml;
 
   } catch (e) {
 
@@ -275,4 +186,3 @@ export async function loadQueries() {
   }
 
 }
-

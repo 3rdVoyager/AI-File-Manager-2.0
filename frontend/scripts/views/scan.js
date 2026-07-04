@@ -13,23 +13,20 @@ import {
 
 
 let browsePath = '';
-
 let browseValid = false;
-
-
+let selectionContext = 'scan'; // 'scan' or 'empty-folders'
 
 function updateSelectButton() {
-
   const btn = document.getElementById('select-folder-btn');
-
   if (btn) {
-
     btn.disabled = !browseValid;
-
     btn.title = browseValid ? '' : 'Navigate to a folder first';
-
+    if (selectionContext === 'empty-folders') {
+      btn.textContent = 'Scan This Folder for Empty Folders';
+    } else {
+      btn.textContent = 'Select This Folder';
+    }
   }
-
 }
 
 
@@ -59,11 +56,13 @@ function formatWait(seconds) {
 
 
 
-export async function openFolderPicker() {
+export async function openFolderPicker(context = 'scan') {
 
   browsePath = '';
 
   browseValid = false;
+
+  selectionContext = context;
 
   updateSelectButton();
 
@@ -213,21 +212,30 @@ export async function selectFolder() {
 
   closeModal('folder-modal');
 
-  await startScan(browsePath);
+  if (selectionContext === 'empty-folders') {
+    const { loadEmptyFolders } = await import('./files.js');
+    await loadEmptyFolders(browsePath);
+  } else {
+    await startScan(browsePath, false);
+  }
 
 }
 
 
 
-export async function startScan(path) {
+export async function startScan(path, runInBackground = false) {
 
   try {
 
+    state.scanInBackground = runInBackground;
     const { scan_id } = await api.startScan(path);
 
     state.scanId = scan_id;
 
-    openModal('progress-modal');
+    // Open modal if not running in background, or if it's already open (re-scan case)
+    if (!state.scanInBackground || document.getElementById('progress-modal')?.classList.contains('open')) {
+      openModal('progress-modal');
+    }
 
     pollScan(scan_id);
 
@@ -252,6 +260,9 @@ function pollScan(id) {
       const s = await api.getScanStatus(id);
 
       const fill = document.getElementById('progress-fill');
+      const sideFill = document.getElementById('sidebar-progress-fill');
+      const sidePct = document.getElementById('sidebar-progress-pct');
+      const sideWrap = document.getElementById('sidebar-scan-progress');
 
       const text = document.getElementById('progress-text');
 
@@ -263,10 +274,16 @@ function pollScan(id) {
         ? Math.min(99, (s.files_processed / s.files_found) * 100)
         : (s.progress || 0);
 
+      const pctText = `${Math.round(pct)}%`;
+
       if (fill) {
         fill.style.width = `${pct}%`;
         fill.parentElement?.setAttribute('aria-valuenow', String(Math.round(pct)));
       }
+
+      if (sideFill) sideFill.style.width = `${pct}%`;
+      if (sidePct) sidePct.textContent = pctText;
+      if (sideWrap) sideWrap.style.display = 'block';
 
       if (s.ai_status === 'paused') {
         if (text) text.textContent = `Groq rate limit reached. Resuming in ${formatWait(s.ai_wait_seconds)}.`;
@@ -291,12 +308,24 @@ function pollScan(id) {
         state.scanPoll = null;
 
         closeModal('progress-modal');
+        const sideWrap = document.getElementById('sidebar-scan-progress');
+        if (sideWrap) sideWrap.style.display = 'none';
 
         if (s.status === 'completed') {
 
           showToast(`Scan complete! ${s.files_found} files analyzed.`, 'success');
 
-          await refreshDashboard();
+          // Always close modal when scan finishes, regardless of background status
+        closeModal('progress-modal');
+
+        // If the scan was running in the background, refresh the dashboard only if the dashboard is currently visible
+        if (state.scanInBackground && state.currentView !== 'dashboard') {
+          // Do nothing, the user is browsing elsewhere, dashboard will refresh on view change
+        } else {
+          await refreshDashboard(); // Refresh dashboard if current view or if scan was foregrounded
+        }
+
+        state.scanInBackground = false; // Reset background status
 
         } else if (s.status === 'failed') {
 
@@ -315,6 +344,9 @@ function pollScan(id) {
       clearInterval(state.scanPoll);
       state.scanPoll = null;
       closeModal('progress-modal');
+      const sideWrap = document.getElementById('sidebar-scan-progress');
+      if (sideWrap) sideWrap.style.display = 'none';
+      state.scanInBackground = false; // Reset background status
 
       showToast(e.message, 'error');
 
@@ -331,6 +363,7 @@ export async function cancelScan() {
   if (state.scanId) {
 
     await api.cancelScan(state.scanId);
+    closeModal('progress-modal'); // Close modal immediately on cancel
 
     showToast('Cancelling scan…');
 

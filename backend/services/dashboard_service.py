@@ -13,8 +13,7 @@ def _empty_dashboard() -> dict[str, Any]:
         "empty": True,
         "files_analyzed": 0,
         "files_delta": 0,
-        "projects_detected": 0,
-        "projects_delta": 0,
+        "rename_suggestions": 0,
         "duplicate_files": 0,
         "duplicate_bytes": 0,
         "trash_candidates": 0,
@@ -56,7 +55,11 @@ def get_dashboard() -> dict[str, Any]:
         """SELECT COALESCE(SUM(file_count), 0) as cnt, COALESCE(SUM(total_bytes), 0) as bytes
            FROM duplicate_groups"""
     )
-    projects = database.fetch_one("SELECT COUNT(DISTINCT name) as cnt FROM projects")
+    rename_suggestions = database.fetch_one(
+        """SELECT COUNT(*) as cnt FROM analyses a
+           JOIN files f ON f.id = a.file_id
+           WHERE a.suggested_filename != '' AND a.rename_confidence >= 60"""
+    )
 
     prev = database.fetch_one(
         """SELECT files_found FROM scans WHERE status = 'completed'
@@ -87,8 +90,7 @@ def get_dashboard() -> dict[str, Any]:
         "empty": False,
         "files_analyzed": stats["files_analyzed"],
         "files_delta": files_delta,
-        "projects_detected": projects["cnt"] if projects else 0,
-        "projects_delta": 0,
+        "rename_suggestions": rename_suggestions["cnt"] if rename_suggestions else 0,
         "duplicate_files": dup["cnt"] if dup else 0,
         "duplicate_bytes": dup_bytes,
         "duplicate_human": human_size(dup_bytes),

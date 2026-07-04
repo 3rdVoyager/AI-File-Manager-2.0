@@ -23,10 +23,6 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
           All Files
         </button>
-        <button class="nav-item" data-view="projects" title="Files grouped by project">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-          Projects
-        </button>
         <button class="nav-item" data-view="duplicates" title="Find duplicate files">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V4a2 2 0 0 1 2-2h12"/></svg>
           Duplicates
@@ -43,20 +39,34 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           Trash Candidates
         </button>
-        <div class="nav-label">Tools</div>
-        <button class="nav-item" data-view="queries" title="Search with natural language">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          Queries
+        <button class="nav-item" data-view="empty-folders" title="Remove empty folders from scanned locations">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="8" y1="13" x2="16" y2="13"/></svg>
+          Empty Folders
         </button>
-        <button class="nav-item" data-view="reports" title="Saved scan reports">
+        <div class="nav-label">Tools</div>
+        <button class="nav-item" data-view="rename-tool" title="Review AI rename suggestions">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          Rename Tool
+        </button>
+        <button class="nav-item" data-view="scans" title="Review previous scans">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          Reports
+          Recent Scans
         </button>
         <button class="nav-item" data-view="settings" title="API key and preferences">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           Settings
         </button>
       </nav>
+      <div id="sidebar-scan-progress" class="sidebar-progress" style="display:none">
+        <div class="progress-label">
+          <span>Scanning...</span>
+          <span id="sidebar-progress-pct">0%</span>
+        </div>
+        <div class="progress-bar-mini">
+          <div id="sidebar-progress-fill" class="progress-fill"></div>
+        </div>
+        <button class="btn-link" id="sidebar-show-scan">View Details</button>
+      </div>
       <div class="storage-widget">
         <h4>Storage Analyzed</h4>
         <div class="donut-wrap"><svg id="sidebar-donut" width="120" height="120"></svg></div>
@@ -147,20 +157,19 @@
             <thead><tr>
               <th><input type="checkbox" id="files-select-all" aria-label="Select all"></th>
               <th data-sort="filename">Name</th><th>Path</th><th data-sort="category">Category</th>
-              <th data-sort="size_bytes">Size</th><th data-sort="importance">Importance</th><th data-sort="action">Action</th><th>Project</th>
+              <th data-sort="size_bytes">Size</th><th data-sort="importance">Importance</th><th data-sort="action">Action</th>
             </tr></thead>
             <tbody id="files-tbody"></tbody>
           </table>
           <div id="files-pagination" style="margin-top:16px"></div>
         </div>
 
-        <!-- Projects -->
-        <div id="view-projects" class="view">
-          <div class="project-grid" id="projects-grid"></div>
-        </div>
-
         <!-- Duplicates -->
         <div id="view-duplicates" class="view">
+          <div class="view-toolbar">
+            <button class="btn btn-primary" id="duplicates-refresh-btn">Refresh Duplicates</button>
+            <span class="text-muted" id="duplicates-summary"></span>
+          </div>
           <div id="duplicates-list"></div>
         </div>
 
@@ -207,17 +216,37 @@
           </table>
         </div>
 
-        <!-- Queries -->
-        <div id="view-queries" class="view">
-          <div id="queries-list"></div>
+        <!-- Empty Folders -->
+        <div id="view-empty-folders" class="view">
+          <div class="view-toolbar">
+            <button class="btn btn-primary" id="empty-folders-scan-btn">Scan Folder...</button>
+            <button class="btn btn-danger" id="empty-folders-delete-btn" disabled>Remove Selected</button>
+            <span class="text-muted" id="empty-folders-summary"></span>
+          </div>
+          <table class="data-table">
+            <thead><tr><th><input type="checkbox" id="empty-folders-select-all" aria-label="Select all"></th><th>Name</th><th>Path</th><th>Scan Root</th></tr></thead>
+            <tbody id="empty-folders-tbody"></tbody>
+          </table>
         </div>
 
-        <!-- Reports -->
-        <div id="view-reports" class="view">
-          <button class="btn btn-primary" id="save-report-btn" style="margin-bottom:16px">Save Current Report</button>
+        <!-- Rename Tool -->
+        <div id="view-rename-tool" class="view">
+          <div class="view-toolbar">
+            <button class="btn btn-primary" id="rename-refresh-btn">Refresh Suggestions</button>
+            <button class="btn btn-danger" id="rename-apply-btn" disabled>Apply Selected</button>
+            <span class="text-muted" id="rename-summary"></span>
+          </div>
           <table class="data-table">
-            <thead><tr><th>Name</th><th>Files</th><th>Saved</th></tr></thead>
-            <tbody id="reports-tbody"></tbody>
+            <thead><tr><th><input type="checkbox" id="rename-select-all" aria-label="Select all"></th><th>Current Name</th><th>Suggested Name</th><th>Reason</th><th>Confidence</th></tr></thead>
+            <tbody id="rename-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Recent Scans -->
+        <div id="view-scans" class="view">
+          <table class="data-table">
+            <thead><tr><th>Name</th><th>Path</th><th>Files</th><th>Size</th><th>Date</th><th>Actions</th></tr></thead>
+            <tbody id="recent-scans-tbody"></tbody>
           </table>
         </div>
 
@@ -252,13 +281,13 @@
           </div>
           <div class="settings-section settings-about">
             <h3>Data Location</h3>
-            <p class="form-help">Settings, database, and reports are stored outside the app folder at:</p>
+            <p class="form-help">Settings, database, and scan history are stored outside the app folder at:</p>
             <code id="settings-data-dir" class="data-dir-path"></code>
             <p class="form-help" style="margin-top:12px">Back up this folder to preserve your scan history and API key.</p>
           </div>
           <div class="settings-section settings-danger">
             <h3>Danger Zone</h3>
-            <p class="form-help">Permanently delete all scan data, API key, settings, and reports. This cannot be undone.</p>
+            <p class="form-help">Permanently delete all scan data, API key, settings, and scan history. This cannot be undone.</p>
             <button class="btn btn-danger" id="reset-all-btn">Reset All Data</button>
           </div>
           <div class="help-section">
@@ -267,7 +296,7 @@
               <li>Click <strong>+ New Scan</strong> and pick a folder (Documents, Downloads, etc.)</li>
               <li>Wait for the scan to finish — duplicates and large files work without AI</li>
               <li>Add a Groq API key above for smarter categories and recommendations</li>
-              <li>Use the AI toggle in All Files search to ask questions like "inactive Python projects"</li>
+              <li>Use the AI toggle in All Files search to ask questions about your scanned files</li>
               <li>Review trash candidates before deleting — files go to the Recycle Bin</li>
             </ol>
           </div>
@@ -325,6 +354,7 @@
       <p id="progress-notice" class="progress-notice" style="display:none" aria-live="polite"></p>
       <p id="progress-file" style="font-size:12px;color:var(--text-muted);margin-top:8px"></p>
       <button class="btn btn-secondary" id="cancel-scan-btn" style="margin-top:16px">Cancel</button>
+      <button class="btn btn-secondary" id="background-scan-btn" style="margin-top:8px">Run in background</button>
     </div>
   </div>
 
@@ -340,7 +370,7 @@
   <div class="modal-overlay" id="reset-modal">
     <div class="modal" style="max-width:480px">
       <h2>Reset All Data</h2>
-      <p class="form-help">This wipes your API key, scan history, cache, and reports. Type <strong>RESET</strong> to confirm.</p>
+      <p class="form-help">This wipes your API key, scan history, and cache. Type <strong>RESET</strong> to confirm.</p>
       <div class="form-group">
         <label for="reset-confirm-input">Confirmation</label>
         <input type="text" id="reset-confirm-input" class="form-input" placeholder="Type RESET" autocomplete="off">

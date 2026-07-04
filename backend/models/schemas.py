@@ -19,6 +19,7 @@ class SettingsTestRequest(BaseModel):
 class ScanRequest(BaseModel):
     path: str
     name: Optional[str] = None
+    run_in_background: bool = False
 
 
 class QueryRequest(BaseModel):
@@ -36,6 +37,14 @@ class DeletePreviewRequest(BaseModel):
 class DeleteRequest(BaseModel):
     paths: list[str]
     dry_run: bool = False
+
+
+class EmptyDirectoriesDeleteRequest(BaseModel):
+    paths: list[str]
+
+
+class RenameApplyRequest(BaseModel):
+    paths: list[str]
 
 
 class ReportSaveRequest(BaseModel):

@@ -38,6 +38,15 @@ def init_db() -> None:
     schema = SCHEMA_FILE.read_text(encoding="utf-8")
     with db() as conn:
         conn.executescript(schema)
+        _ensure_column(conn, "analyses", "suggested_filename", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "analyses", "rename_reason", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "analyses", "rename_confidence", "INTEGER NOT NULL DEFAULT 0")
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def close_db() -> None:

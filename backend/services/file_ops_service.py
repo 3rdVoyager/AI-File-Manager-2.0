@@ -1,6 +1,8 @@
 """File operations service."""
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,13 @@ from backend.database.db import log_activity
 from backend.filesystem import service as fs
 from backend.services.duplicate_service import rebuild_duplicates
 from backend.services.recommendations_service import regenerate_recommendations
+
+DOCUMENT_RENAME_EXTENSIONS = {
+    ".txt", ".md", ".pdf", ".doc", ".docx", ".rtf", ".odt", ".ppt", ".pptx",
+    ".xls", ".xlsx", ".csv", ".pages", ".numbers", ".key",
+    ".py", ".js", ".ts", ".html", ".css", ".c", ".cpp", ".h", ".java", ".go",
+}
+INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 def list_files(page: int = 1, per_page: int = 50, sort: str = "filename",
@@ -69,7 +78,107 @@ def list_files(page: int = 1, per_page: int = 50, sort: str = "filename",
     return {"files": rows, "total": total, "page": page, "per_page": per_page}
 
 
+def _valid_suggested_filename(current: str, suggested: str, extension: str) -> str:
+    name = suggested.strip().strip(". ")
+    if not name or INVALID_FILENAME_CHARS.search(name):
+        return ""
+    if name in {".", ".."} or Path(name).name != name:
+        return ""
+    suffix = extension.lower()
+    if suffix and Path(name).suffix.lower() != suffix:
+        name = f"{Path(name).stem}{suffix}"
+    if name.lower() == current.lower():
+        return ""
+    return name
+
+
+def list_rename_suggestions() -> dict[str, Any]:
+    rows = database.fetch_all(
+        """SELECT f.path, f.filename, f.extension, f.size_bytes, a.summary,
+                  a.suggested_filename, a.rename_reason, a.rename_confidence
+           FROM files f
+           JOIN analyses a ON a.file_id = f.id
+           WHERE a.suggested_filename != ''
+             AND a.rename_confidence >= 30
+           ORDER BY a.rename_confidence DESC, f.filename ASC"""
+    )
+    suggestions = []
+    for row in rows:
+        if row["extension"].lower() not in DOCUMENT_RENAME_EXTENSIONS:
+            continue
+        suggested = _valid_suggested_filename(row["filename"], row["suggested_filename"], row["extension"])
+        if not suggested:
+            continue
+        target_path = str((Path(row["path"]).parent / suggested).resolve())
+        suggestions.append({
+            "path": row["path"],
+            "filename": row["filename"],
+            "suggested_filename": suggested,
+            "target_path": target_path,
+            "summary": row["summary"],
+            "rename_reason": row["rename_reason"],
+            "rename_confidence": row["rename_confidence"],
+            "size_human": fs.human_size(row["size_bytes"]),
+        })
+    return {"suggestions": suggestions, "count": len(suggestions)}
+
+
+def apply_rename_suggestions(paths: list[str]) -> dict[str, Any]:
+    results = []
+    renamed: list[tuple[str, str]] = []
+
+    for raw_path in paths:
+        try:
+            norm = fs.normalize_path(raw_path)
+            row = database.fetch_one(
+                """SELECT f.id, f.path, f.filename, f.extension, a.suggested_filename
+                   FROM files f JOIN analyses a ON a.file_id = f.id
+                   WHERE f.path = ?""",
+                (norm,),
+            )
+            if not row:
+                raise FileNotFoundError("File is not in the scan index.")
+            if row["extension"].lower() not in DOCUMENT_RENAME_EXTENSIONS:
+                raise ValueError("Only document files can be renamed by this tool.")
+            suggested = _valid_suggested_filename(row["filename"], row["suggested_filename"], row["extension"])
+            if not suggested:
+                raise ValueError("No valid rename suggestion is available.")
+
+            source = Path(row["path"])
+            target = source.with_name(suggested)
+            if target.exists():
+                raise FileExistsError(f"Target already exists: {target.name}")
+            source.rename(target)
+
+            target_norm = str(target.resolve())
+            with database.db() as conn:
+                conn.execute(
+                    """UPDATE files
+                       SET path = ?, filename = ?, extension = ?
+                       WHERE id = ?""",
+                    (target_norm, target.name, target.suffix.lower(), row["id"]),
+                )
+                conn.execute(
+                    """UPDATE analyses
+                       SET suggested_filename = '', rename_reason = '', rename_confidence = 0
+                       WHERE file_id = ?""",
+                    (row["id"],),
+                )
+            purge_paths([norm])
+            log_activity("file_renamed", f"Renamed {row['filename']} to {target.name}", {
+                "from": norm,
+                "to": target_norm,
+            })
+            renamed.append((norm, target_norm))
+            results.append({"path": norm, "new_path": target_norm, "success": True})
+        except Exception as e:
+            results.append({"path": raw_path, "success": False, "error": str(e)})
+
+    return {"results": results, "renamed_count": len(renamed)}
+
+
 def get_duplicates() -> list[dict]:
+    rebuild_duplicates()
     groups = database.fetch_all(
         """SELECT dg.id, dg.content_hash, dg.file_count, dg.total_bytes
            FROM duplicate_groups dg ORDER BY dg.total_bytes DESC"""
@@ -195,3 +304,96 @@ def execute_delete(paths: list[str], dry_run: bool = False) -> dict:
         "freed_bytes": freed_bytes,
         "freed_human": fs.human_size(freed_bytes),
     }
+
+
+def _completed_scan_roots() -> list[str]:
+    rows = database.fetch_all(
+        "SELECT DISTINCT root_path FROM scans WHERE status = 'completed' ORDER BY root_path"
+    )
+    roots = []
+    for row in rows:
+        try:
+            root = fs.normalize_path(row["root_path"])
+        except OSError:
+            continue
+        if Path(root).is_dir():
+            roots.append(root)
+    return roots
+
+
+def _is_inside_scan_root(path: str, roots: list[str]) -> bool:
+    candidate = Path(path)
+    for root in roots:
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            continue
+        return candidate != Path(root)
+    return False
+
+
+def list_empty_directories(path: Optional[str] = None) -> dict[str, Any]:
+    if path:
+        try:
+            roots = [fs.normalize_path(path)]
+        except OSError:
+            roots = []
+    else:
+        roots = _completed_scan_roots()
+    
+    empty_dirs: dict[str, dict[str, Any]] = {}
+
+    for root in roots:
+        if not Path(root).is_dir():
+            continue
+        for dirpath, _, _ in os.walk(root):
+            path_obj = Path(dirpath)
+            if path_obj == Path(root) or path_obj.is_symlink():
+                continue
+            try:
+                next(path_obj.iterdir())
+            except StopIteration:
+                norm = str(path_obj.resolve())
+                empty_dirs[norm] = {
+                    "path": norm,
+                    "name": path_obj.name,
+                    "root_path": root,
+                }
+            except (OSError, PermissionError):
+                continue
+
+    directories = sorted(empty_dirs.values(), key=lambda d: d["path"].lower())
+    return {"directories": directories, "count": len(directories)}
+
+
+def delete_empty_directories(paths: list[str]) -> dict[str, Any]:
+    results = []
+    removed = []
+
+    normalized = []
+    for path in paths:
+        try:
+            normalized.append(fs.normalize_path(path))
+        except OSError as e:
+            results.append({"path": path, "success": False, "error": str(e)})
+
+    for norm in sorted(set(normalized), key=lambda p: len(Path(p).parts), reverse=True):
+        path = Path(norm)
+        try:
+            if path.is_symlink():
+                raise ValueError("Refusing to remove symbolic links.")
+            if not path.is_dir():
+                raise FileNotFoundError("Directory not found.")
+            
+            # Attempt to remove - os.rmdir only works if empty
+            path.rmdir()
+            removed.append(norm)
+            log_activity("empty_directory_removed", f"Removed empty folder {path.name}", {"path": norm})
+            results.append({"path": norm, "success": True})
+        except OSError as e:
+            # Usually means not empty or permission denied
+            results.append({"path": norm, "success": False, "error": "Folder is not empty or permission denied."})
+        except Exception as e:
+            results.append({"path": norm, "success": False, "error": str(e)})
+
+    return {"results": results, "removed_count": len(removed)}

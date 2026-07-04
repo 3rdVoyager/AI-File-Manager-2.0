@@ -25,12 +25,14 @@ def _system_prompt(tier: ScanTier, batch: bool = False) -> str:
     keys = [
         "summary", "category", "subcategory", "tags", "project", "importance",
         "sentimental_value", "lifecycle", "action", "confidence", "reasoning",
-        "requires_review",
+        "requires_review", "suggested_filename", "rename_reason", "rename_confidence",
     ]
     field_spec = (
         f'keys: {", ".join(keys)}. summary <=12 words; reasoning <=15 words; '
         f"category one of {CATEGORIES}; lifecycle one of Active, Dormant, Archived, Transient, Unknown; "
-        "action one of Keep, Delete, Archive, Review."
+        "action one of Keep, Delete, Archive, Review. suggested_filename empty unless the filename could be improved for clarity, "
+        "organization, or descriptive accuracy; when set, keep the original extension and use a safe Windows filename. "
+        "rename_reason <=12 words; rename_confidence 0-100."
     )
     cleanup_guidance = (
         "Be critical about cleanup. Use Delete with confidence 75-95 for files that are usually safe "
@@ -82,6 +84,9 @@ def _coerce(data: dict[str, Any], metadata: FileMetadata) -> AnalysisResult:
         lifecycle=lifecycle,
         action=action,
         reasoning=str(data.get("reasoning", "")),
+        suggested_filename=str(data.get("suggested_filename", "")),
+        rename_reason=str(data.get("rename_reason", "")),
+        rename_confidence=_bounded_int(data.get("rename_confidence"), 0, 0, 100),
         requires_review=bool(data.get("requires_review", False)),
         size_bytes=metadata.size_bytes,
         size_human=metadata.size_human,
@@ -276,7 +281,7 @@ class GroqProvider:
                 {"role": "user", "content": _build_batch_user_msg(indexed, self.tier)},
             ],
             "temperature": 0.1,
-            "max_tokens": max(120, 80 * len(items) + 50),
+            "max_tokens": max(180, 120 * len(items) + 80),
             "response_format": {"type": "json_object"},
         }
 

@@ -46,14 +46,18 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return request(`/files?${q}`);
   },
-  getProjects: () => request('/projects'),
   getDuplicates: () => request('/duplicates'),
+  getRenameSuggestions: () => request('/rename-suggestions'),
+  applyRenameSuggestions: (paths) => request('/rename-suggestions/apply', { method: 'POST', body: { paths } }),
   open: (path) => request('/open', { method: 'POST', body: { path } }),
   query: (q) => request('/query', { method: 'POST', body: { query: q } }),
   deletePreview: (paths) => request('/delete-preview', { method: 'POST', body: { paths } }),
   delete: (paths, dryRun = false) => request('/delete', { method: 'POST', body: { paths, dry_run: dryRun } }),
-  getReports: () => request('/reports'),
-  saveReport: (name) => request('/reports', { method: 'POST', body: { name } }),
+  getEmptyDirectories: (path = null) => {
+    const q = path ? `?path=${encodeURIComponent(path)}` : '';
+    return request(`/empty-directories${q}`);
+  },
+  deleteEmptyDirectories: (paths) => request('/empty-directories/delete', { method: 'POST', body: { paths } }),
   getHistory: () => request('/history'),
   shutdown: () => request('/shutdown', { method: 'POST' }),
   resetAll: (confirm) => request('/reset', { method: 'POST', body: { confirm } }),
