@@ -18,8 +18,10 @@ def list_files(
     category: str = "",
     action: str = "",
     min_confidence: int | None = Query(None, ge=0, le=100),
+    size_filter: str = "",
+    date_filter: str = "",
 ):
-    return file_ops_service.list_files(page, per_page, sort, order, search, category, action, min_confidence)
+    return file_ops_service.list_files(page, per_page, sort, order, search, category, action, min_confidence, size_filter, date_filter)
 
 
 @router.post("/open")

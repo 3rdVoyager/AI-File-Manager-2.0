@@ -15,7 +15,7 @@ router = APIRouter(tags=["scan"])
 @router.post("/scan")
 def start_scan(body: ScanRequest):
     try:
-        scan_id = pipeline.start_scan(body.path, body.name, body.run_in_background)
+        scan_id = pipeline.start_scan(body.path, body.name, body.run_in_background, body.scan_type)
         return {"scan_id": scan_id}
     except ValueError as e:
         raise HTTPException(400, str(e))

@@ -23,7 +23,9 @@ INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 def list_files(page: int = 1, per_page: int = 50, sort: str = "filename",
                order: str = "asc", search: str = "", category: str = "",
-               action: str = "", min_confidence: int | None = None) -> dict[str, Any]:
+               action: str = "", min_confidence: int | None = None,
+               size_filter: str = "", date_filter: str = "") -> dict[str, Any]:
+    import time
     offset = (page - 1) * per_page
     where, params = [], []
 
@@ -39,6 +41,29 @@ def list_files(page: int = 1, per_page: int = 50, sort: str = "filename",
     if min_confidence is not None:
         where.append("a.confidence >= ?")
         params.append(min_confidence)
+    
+    # Size filters
+    if size_filter == "large":
+        where.append("f.size_bytes >= 10485760")  # > 10MB
+    elif size_filter == "medium":
+        where.append("f.size_bytes >= 1048576 AND f.size_bytes < 10485760")  # 1MB-10MB
+    elif size_filter == "small":
+        where.append("f.size_bytes < 1048576")  # < 1MB
+    
+    # Date filters
+    if date_filter == "recent":
+        where.append("f.modified_at >= ?")
+        params.append(time.time() - 7 * 24 * 3600)  # 7 days ago
+    elif date_filter == "month":
+        where.append("f.modified_at >= ?")
+        params.append(time.time() - 30 * 24 * 3600)  # 30 days ago
+    elif date_filter == "year":
+        where.append("f.modified_at >= ?")
+        params.append(time.time() - 365 * 24 * 3600)  # 365 days ago
+
+    # When filtering by action (like Delete), only show AI scan results
+    if action:
+        where.append("EXISTS (SELECT 1 FROM scan_files sf JOIN scans s ON s.id = sf.scan_id WHERE sf.file_id = f.id AND s.scan_type = 'ai')")
 
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     valid_sorts = {"filename", "size_bytes", "modified_at", "importance", "category", "action", "confidence"}
@@ -100,6 +125,7 @@ def list_rename_suggestions() -> dict[str, Any]:
            JOIN analyses a ON a.file_id = f.id
            WHERE a.suggested_filename != ''
              AND a.rename_confidence >= 30
+             AND (a.prefiltered = 0 OR a.reasoning != 'Script scan — basic classification only.')
            ORDER BY a.rename_confidence DESC, f.filename ASC"""
     )
     suggestions = []
@@ -339,7 +365,17 @@ def list_empty_directories(path: Optional[str] = None) -> dict[str, Any]:
         except OSError:
             roots = []
     else:
-        roots = _completed_scan_roots()
+        scan_roots = database.fetch_all(
+            "SELECT DISTINCT root_path FROM scans WHERE status = 'completed' AND scan_type = 'script' ORDER BY root_path"
+        )
+        roots = []
+        for row in scan_roots:
+            try:
+                root = fs.normalize_path(row["root_path"])
+                if Path(root).is_dir():
+                    roots.append(root)
+            except OSError:
+                continue
     
     empty_dirs: dict[str, dict[str, Any]] = {}
 
@@ -377,7 +413,21 @@ def delete_empty_directories(paths: list[str]) -> dict[str, Any]:
         except OSError as e:
             results.append({"path": path, "success": False, "error": str(e)})
 
-    for norm in sorted(set(normalized), key=lambda p: len(Path(p).parts), reverse=True):
+    # Filter to only delete leaf nodes (folders that don't contain other selected folders)
+    # This prevents issues with send2trash where deleting a parent also deletes children
+    path_set = set(normalized)
+    leaf_paths = []
+    for norm in path_set:
+        path = Path(norm)
+        # Check if any other selected path is a child of this path
+        has_child = any(
+            p != norm and Path(p).is_relative_to(path)
+            for p in path_set
+        )
+        if not has_child:
+            leaf_paths.append(norm)
+
+    for norm in sorted(leaf_paths, key=lambda p: len(Path(p).parts), reverse=True):
         path = Path(norm)
         try:
             if path.is_symlink():
@@ -385,14 +435,18 @@ def delete_empty_directories(paths: list[str]) -> dict[str, Any]:
             if not path.is_dir():
                 raise FileNotFoundError("Directory not found.")
             
-            # Attempt to remove - os.rmdir only works if empty
-            path.rmdir()
+            # Double-check it's still empty before deletion
+            try:
+                next(path.iterdir())
+                raise ValueError("Directory is not empty - deletion cancelled for safety.")
+            except StopIteration:
+                pass  # Directory is empty, safe to delete
+            
+            # Send to recycle bin for safety
+            fs.delete_to_trash(norm)
             removed.append(norm)
             log_activity("empty_directory_removed", f"Removed empty folder {path.name}", {"path": norm})
             results.append({"path": norm, "success": True})
-        except OSError as e:
-            # Usually means not empty or permission denied
-            results.append({"path": norm, "success": False, "error": "Folder is not empty or permission denied."})
         except Exception as e:
             results.append({"path": norm, "success": False, "error": str(e)})
 

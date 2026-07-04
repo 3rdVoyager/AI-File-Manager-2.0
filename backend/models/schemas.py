@@ -20,6 +20,7 @@ class ScanRequest(BaseModel):
     path: str
     name: Optional[str] = None
     run_in_background: bool = False
+    scan_type: Optional[str] = "ai"  # "ai" or "script"
 
 
 class QueryRequest(BaseModel):

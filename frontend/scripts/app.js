@@ -7,7 +7,7 @@ import { refreshDashboard } from './views/dashboard.js';
 
 import { loadSettings, saveSettings, testConnection, completeSetup, skipSetup, initResetModal, quitApp } from './views/settings.js';
 
-import { loadFiles, loadLargeFiles, loadRecentFiles, loadTrashCandidates, loadEmptyFolders, loadRenameSuggestions, initFilesSort, deleteSelectedFiles, deleteSelectedTrash, deleteAllTrash, deleteSelectedLarge, deleteSelectedRecent, deleteSelectedEmptyFolders, applySelectedRenames } from './views/files.js';
+import { loadFiles, loadTrashCandidates, loadEmptyFolders, loadRenameSuggestions, initFilesSort, deleteSelectedFiles, deleteSelectedTrash, deleteAllTrash, deleteSelectedEmptyFolders, applySelectedRenames } from './views/files.js';
 
 import { bindFileLinks, initDeleteModal } from './views/file-actions.js';
 
@@ -176,10 +176,6 @@ async function onViewChange(view) {
 
     case 'duplicates': await loadDuplicates(); break;
 
-    case 'large': await loadLargeFiles(); break;
-
-    case 'recent': await loadRecentFiles(); break;
-
     case 'trash': await loadTrashCandidates(); break;
 
     case 'empty-folders': await loadEmptyFolders(); break;
@@ -293,7 +289,8 @@ async function init() {
 
   document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
 
-  document.getElementById('new-scan-btn')?.addEventListener('click', openFolderPicker);
+  document.getElementById('ai-scan-btn')?.addEventListener('click', () => openFolderPicker('scan', 'ai'));
+  document.getElementById('script-scan-btn')?.addEventListener('click', () => openFolderPicker('scan', 'script'));
 
   document.getElementById('select-folder-btn')?.addEventListener('click', selectFolder);
 
@@ -328,6 +325,8 @@ async function init() {
   document.getElementById('files-ai-toggle')?.addEventListener('click', toggleAiSearch);
 
   document.getElementById('files-search')?.addEventListener('input', onFilesSearchInput);
+  document.getElementById('files-size-filter')?.addEventListener('change', loadFiles);
+  document.getElementById('files-date-filter')?.addEventListener('change', loadFiles);
 
   document.getElementById('files-search')?.addEventListener('keydown', e => {
 
@@ -362,10 +361,7 @@ async function init() {
   document.getElementById('trash-delete-btn')?.addEventListener('click', deleteSelectedTrash);
 
   document.getElementById('trash-delete-all-btn')?.addEventListener('click', deleteAllTrash);
-  document.getElementById('large-delete-btn')?.addEventListener('click', deleteSelectedLarge);
-  document.getElementById('recent-delete-btn')?.addEventListener('click', deleteSelectedRecent);
   document.getElementById('empty-folders-delete-btn')?.addEventListener('click', deleteSelectedEmptyFolders);
-  document.getElementById('empty-folders-scan-btn')?.addEventListener('click', () => openFolderPicker('empty-folders'));
   document.getElementById('duplicates-refresh-btn')?.addEventListener('click', loadDuplicates);
   document.getElementById('rename-refresh-btn')?.addEventListener('click', loadRenameSuggestions);
   document.getElementById('rename-apply-btn')?.addEventListener('click', applySelectedRenames);

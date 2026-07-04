@@ -239,27 +239,29 @@ async def _process_ai_batches(
     return completed_count + completed_ai
 
 
-def _run_scan(scan_id: int, root_path: str) -> None:
+def _run_scan(scan_id: int, root_path: str, scan_type: str = "ai") -> None:
     database.close_db()
     settings = load_settings()
     hash_seen: dict[str, str] = {}
     loop = asyncio.new_event_loop()
     provider: GroqProvider | None = None
+    use_ai = scan_type == "ai"
 
     try:
         paths = list(fs.traverse_directory(root_path))
         total = len(paths)
         scan_tier = tier_for_file_count(total)
         scan_model = model_for_scan(total, settings.model)
-        provider = GroqProvider(model=scan_model, tier=scan_tier)
+        if use_ai:
+            provider = GroqProvider(model=scan_model, tier=scan_tier)
         total_bytes = 0
         processed_count = 0
         pending_ai: list[tuple[fs.FileMetadata, str]] = []
 
         with database.db() as conn:
             conn.execute(
-                "UPDATE scans SET status='running', files_found=?, started_at=COALESCE(started_at, ?) WHERE id=?",
-                (total, utc_now(), scan_id),
+                "UPDATE scans SET status='running', files_found=?, started_at=COALESCE(started_at, ?), scan_type=? WHERE id=?",
+                (total, utc_now(), scan_type, scan_id),
             )
 
         with _scan_lock:
@@ -304,7 +306,7 @@ def _run_scan(scan_id: int, root_path: str) -> None:
                     pre = pre_analyze_filter(path, scan_tier.skip_ai_extensions)
                     if pre:
                         analysis = _analysis_from_dict(pre, meta)
-                    elif provider.is_configured():
+                    elif use_ai and provider and provider.is_configured():
                         content = fs.read_text_snippets(path, max_per=scan_tier.snippet_max_per) if scan_tier.snippet_max_per else ""
                         pending_ai.append((meta, content))
                         continue
@@ -314,7 +316,7 @@ def _run_scan(scan_id: int, root_path: str) -> None:
                             summary=f"File: {meta.filename}",
                             category=_guess_category(meta.extension),
                             action="Review", confidence=50,
-                            reasoning="AI not configured — basic classification only.",
+                            reasoning="Script scan — basic classification only." if not use_ai else "AI not configured — basic classification only.",
                             prefiltered=True,
                             size_bytes=meta.size_bytes, size_human=meta.size_human,
                             extension=meta.extension, modified=meta.modified,
@@ -329,7 +331,7 @@ def _run_scan(scan_id: int, root_path: str) -> None:
             except Exception as e:
                 logger.warning("Error processing %s: %s", path, e)
 
-        if pending_ai and provider and provider.is_configured():
+        if pending_ai and provider and provider.is_configured() and use_ai:
             try:
                 processed_count = loop.run_until_complete(
                     _process_ai_batches(scan_id, provider, pending_ai, scan_model, total, processed_count)
@@ -343,7 +345,8 @@ def _run_scan(scan_id: int, root_path: str) -> None:
             logger.info("Pruned %s stale file rows under %s", stale_count, root_path)
 
         rebuild_duplicates()
-        regenerate_recommendations()
+        if use_ai:
+            regenerate_recommendations()
 
         with database.db() as conn:
             conn.execute(
@@ -389,7 +392,7 @@ def _guess_category(ext: str) -> str:
     return mapping.get(ext.lower(), "Other")
 
 
-def start_scan(root_path: str, name: Optional[str] = None, run_in_background: bool = False) -> int:
+def start_scan(root_path: str, name: Optional[str] = None, run_in_background: bool = False, scan_type: str = "ai") -> int:
     root = fs.normalize_path(root_path)
     if not Path(root).is_dir():
         raise ValueError(f"Not a directory: {root_path}")
@@ -406,9 +409,10 @@ def start_scan(root_path: str, name: Optional[str] = None, run_in_background: bo
             "status": "running", "progress": 0, "files_found": 0,
             "files_processed": 0, "current_file": "", "cancel_requested": False, "error": "",
             "ai_status": "idle", "ai_pause_reason": "", "ai_resume_at": "", "ai_wait_seconds": 0,
+            "scan_type": scan_type,
         }
 
-    _executor.submit(_run_scan, scan_id, root)
+    _executor.submit(_run_scan, scan_id, root, scan_type)
     return scan_id
 
 

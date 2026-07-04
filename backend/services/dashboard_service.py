@@ -45,7 +45,9 @@ def get_dashboard() -> dict[str, Any]:
             COALESCE(SUM(CASE WHEN a.action = 'Delete' AND a.confidence >= ? THEN f.size_bytes ELSE 0 END), 0) as trash_bytes,
             COALESCE(AVG(a.importance), 0) as avg_importance
         FROM files f
-        LEFT JOIN analyses a ON a.file_id = f.id""",
+        LEFT JOIN analyses a ON a.file_id = f.id
+        LEFT JOIN scan_files sf ON sf.file_id = f.id
+        LEFT JOIN scans s ON s.id = sf.scan_id AND s.scan_type = 'ai'""",
         (high_confidence, high_confidence),
     )
     if not stats or stats["files_analyzed"] == 0:
@@ -58,7 +60,9 @@ def get_dashboard() -> dict[str, Any]:
     rename_suggestions = database.fetch_one(
         """SELECT COUNT(*) as cnt FROM analyses a
            JOIN files f ON f.id = a.file_id
-           WHERE a.suggested_filename != '' AND a.rename_confidence >= 60"""
+           JOIN scan_files sf ON sf.file_id = f.id
+           JOIN scans s ON s.id = sf.scan_id
+           WHERE a.suggested_filename != '' AND a.rename_confidence >= 60 AND s.scan_type = 'ai'"""
     )
 
     prev = database.fetch_one(

@@ -41,6 +41,7 @@ def init_db() -> None:
         _ensure_column(conn, "analyses", "suggested_filename", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "analyses", "rename_reason", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "analyses", "rename_confidence", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "scans", "scan_type", "TEXT NOT NULL DEFAULT 'ai'")
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:

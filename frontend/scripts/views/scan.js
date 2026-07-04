@@ -15,6 +15,7 @@ import {
 let browsePath = '';
 let browseValid = false;
 let selectionContext = 'scan'; // 'scan' or 'empty-folders'
+let scanType = 'ai'; // 'ai' or 'script'
 
 function updateSelectButton() {
   const btn = document.getElementById('select-folder-btn');
@@ -56,13 +57,15 @@ function formatWait(seconds) {
 
 
 
-export async function openFolderPicker(context = 'scan') {
+export async function openFolderPicker(context = 'scan', type = 'ai') {
 
   browsePath = '';
 
   browseValid = false;
 
   selectionContext = context;
+
+  scanType = type;
 
   updateSelectButton();
 
@@ -212,23 +215,18 @@ export async function selectFolder() {
 
   closeModal('folder-modal');
 
-  if (selectionContext === 'empty-folders') {
-    const { loadEmptyFolders } = await import('./files.js');
-    await loadEmptyFolders(browsePath);
-  } else {
-    await startScan(browsePath, false);
-  }
+  await startScan(browsePath, false, scanType);
 
 }
 
 
 
-export async function startScan(path, runInBackground = false) {
+export async function startScan(path, runInBackground = false, type = 'ai') {
 
   try {
 
     state.scanInBackground = runInBackground;
-    const { scan_id } = await api.startScan(path);
+    const { scan_id } = await api.startScan(path, null, runInBackground, type);
 
     state.scanId = scan_id;
 

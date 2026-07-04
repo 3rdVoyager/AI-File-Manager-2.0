@@ -83,10 +83,12 @@ export async function loadFiles(opts = {}) {
   if (opts.page) page = opts.page;
 
   const search = document.getElementById('files-search')?.value || '';
+  const sizeFilter = document.getElementById('files-size-filter')?.value || '';
+  const dateFilter = document.getElementById('files-date-filter')?.value || '';
 
   try {
 
-    const data = await api.getFiles({ page, per_page: 50, sort: sortCol, order: sortOrder, search });
+    const data = await api.getFiles({ page, per_page: 50, sort: sortCol, order: sortOrder, search, size_filter: sizeFilter, date_filter: dateFilter });
 
     renderFilesTable(data);
 
@@ -151,74 +153,6 @@ function renderFilesTable(data) {
       ${data.page > 1 ? `<button class="btn btn-sm btn-secondary" onclick="window.loadFilesPage(${data.page - 1})">Prev</button>` : ''}
 
       ${data.page < pages ? `<button class="btn btn-sm btn-secondary" onclick="window.loadFilesPage(${data.page + 1})">Next</button>` : ''}`;
-
-  }
-
-}
-
-
-
-export async function loadLargeFiles() {
-
-  try {
-
-    const data = await api.getFiles({ sort: 'size_bytes', order: 'desc', per_page: 50 });
-
-    const tbody = document.getElementById('large-tbody');
-
-    if (!tbody) return;
-
-    tbody.innerHTML = (data.files || []).map(f => `
-
-      <tr>
-        <td><input type="checkbox" data-path="${escapeAttr(f.path)}" aria-label="Select ${escapeAttr(f.filename)}"></td>
-        <td>${fileNameCell(f.filename, f.path)}</td>
-        <td class="mono path-cell" title="${escapeAttr(f.path)}">${escapeHtml(truncatePath(f.path))}</td>
-        <td>${escapeHtml(f.size_human)}</td>
-        <td>${escapeHtml(f.category || '—')}</td>
-      </tr>`
-
-    ).join('') || '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No files</td></tr>';
-
-    wireRowCheckboxes('#view-large');
-
-  } catch (e) {
-
-    showToast(e.message, 'error');
-
-  }
-
-}
-
-
-
-export async function loadRecentFiles() {
-
-  try {
-
-    const data = await api.getFiles({ sort: 'modified_at', order: 'desc', per_page: 50 });
-
-    const tbody = document.getElementById('recent-tbody');
-
-    if (!tbody) return;
-
-    tbody.innerHTML = (data.files || []).map(f => `
-
-      <tr>
-        <td><input type="checkbox" data-path="${escapeAttr(f.path)}" aria-label="Select ${escapeAttr(f.filename)}"></td>
-        <td>${fileNameCell(f.filename, f.path)}</td>
-        <td class="mono path-cell" title="${escapeAttr(f.path)}">${escapeHtml(truncatePath(f.path))}</td>
-        <td>${new Date(f.modified_at * 1000).toLocaleDateString()}</td>
-        <td>${escapeHtml(f.category || '—')}</td>
-      </tr>`
-
-    ).join('') || '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No files</td></tr>';
-
-    wireRowCheckboxes('#view-recent');
-
-  } catch (e) {
-
-    showToast(e.message, 'error');
 
   }
 
@@ -316,16 +250,15 @@ function wireEmptyFolderSelection() {
 }
 
 
-export async function loadEmptyFolders(path = null) {
+export async function loadEmptyFolders() {
   try {
-    const data = await api.getEmptyDirectories(path);
+    const data = await api.getEmptyDirectories(null);
     const tbody = document.getElementById('empty-folders-tbody');
     const summary = document.getElementById('empty-folders-summary');
     if (!tbody) return;
 
     const directories = data.directories || [];
-    const scanType = path ? `in ${path.split(/[\\/]/).pop()}` : 'in scanned locations';
-    if (summary) summary.textContent = `${directories.length.toLocaleString()} empty folder(s) found ${scanType}`;
+    if (summary) summary.textContent = `${directories.length.toLocaleString()} empty folder(s) found in scanned locations`;
 
     tbody.innerHTML = directories.map(d => `
       <tr>
@@ -334,7 +267,7 @@ export async function loadEmptyFolders(path = null) {
         <td class="mono path-cell" title="${escapeAttr(d.path)}">${escapeHtml(truncatePath(d.path, 90))}</td>
         <td class="mono path-cell" title="${escapeAttr(d.root_path)}">${escapeHtml(truncatePath(d.root_path, 60))}</td>
       </tr>`
-    ).join('') || `<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted)">No empty folders found ${scanType}.</td></tr>`;
+    ).join('') || `<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted)">No empty folders found in scanned locations. Run a Script Scan first.</td></tr>`;
 
     wireEmptyFolderSelection();
     updateEmptyFoldersButton(directories.length > 0);
@@ -447,8 +380,6 @@ function createDeleteSelectedHandler(viewSelector, reload) {
 
 export const deleteSelectedFiles = createDeleteSelectedHandler('#view-files', () => loadFiles());
 export const deleteSelectedTrash = createDeleteSelectedHandler('#view-trash', () => loadTrashCandidates());
-export const deleteSelectedLarge = createDeleteSelectedHandler('#view-large', () => loadLargeFiles());
-export const deleteSelectedRecent = createDeleteSelectedHandler('#view-recent', () => loadRecentFiles());
 
 
 
@@ -487,10 +418,6 @@ export function initFilesSort() {
   bindSelectAll('trash-select-all', '#view-trash');
 
   document.getElementById('trash-confidence-filter')?.addEventListener('change', loadTrashCandidates);
-
-  bindSelectAll('large-select-all', '#view-large');
-
-  bindSelectAll('recent-select-all', '#view-recent');
 
 }
 

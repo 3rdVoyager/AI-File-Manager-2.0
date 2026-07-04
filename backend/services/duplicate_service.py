@@ -12,8 +12,12 @@ def rebuild_duplicates() -> None:
         conn.execute("DELETE FROM duplicate_members")
         conn.execute("DELETE FROM duplicate_groups")
         rows = conn.execute(
-            """SELECT content_hash, COUNT(*) as cnt, SUM(size_bytes) as total
-               FROM files WHERE content_hash != '' GROUP BY content_hash HAVING cnt > 1"""
+            """SELECT f.content_hash, COUNT(*) as cnt, SUM(f.size_bytes) as total
+               FROM files f
+               JOIN scan_files sf ON sf.file_id = f.id
+               JOIN scans s ON s.id = sf.scan_id
+               WHERE f.content_hash != '' AND s.scan_type = 'script'
+               GROUP BY f.content_hash HAVING cnt > 1"""
         ).fetchall()
         for row in rows:
             cur = conn.execute(
@@ -22,7 +26,11 @@ def rebuild_duplicates() -> None:
             )
             gid = cur.lastrowid
             members = conn.execute(
-                "SELECT id FROM files WHERE content_hash = ?", (row["content_hash"],)
+                """SELECT f.id FROM files f
+                   JOIN scan_files sf ON sf.file_id = f.id
+                   JOIN scans s ON s.id = sf.scan_id
+                   WHERE f.content_hash = ? AND s.scan_type = 'script'""",
+                (row["content_hash"],)
             ).fetchall()
             for m in members:
                 conn.execute(
@@ -43,10 +51,12 @@ def sync_duplicate_analyses(conn: Any | None = None) -> None:
 def _sync_duplicate_analyses(conn: Any) -> None:
     now = utc_now()
     duplicate_hashes = conn.execute(
-        """SELECT content_hash
-           FROM files
-           WHERE content_hash != ''
-           GROUP BY content_hash
+        """SELECT f.content_hash
+           FROM files f
+           JOIN scan_files sf ON sf.file_id = f.id
+           JOIN scans s ON s.id = sf.scan_id
+           WHERE f.content_hash != '' AND s.scan_type = 'script'
+           GROUP BY f.content_hash
            HAVING COUNT(*) > 1"""
     ).fetchall()
 
@@ -62,12 +72,16 @@ def _sync_duplicate_analyses(conn: Any) -> None:
              AND file_id IN (
                SELECT f.id
                FROM files f
-               WHERE f.content_hash != ''
+               JOIN scan_files sf ON sf.file_id = f.id
+               JOIN scans s ON s.id = sf.scan_id
+               WHERE f.content_hash != '' AND s.scan_type = 'script'
                  AND f.content_hash NOT IN (
-                   SELECT content_hash
-                   FROM files
-                   WHERE content_hash != ''
-                   GROUP BY content_hash
+                   SELECT f.content_hash
+                   FROM files f
+                   JOIN scan_files sf ON sf.file_id = f.id
+                   JOIN scans s ON s.id = sf.scan_id
+                   WHERE f.content_hash != '' AND s.scan_type = 'script'
+                   GROUP BY f.content_hash
                    HAVING COUNT(*) > 1
                  )
              )""",
@@ -76,10 +90,12 @@ def _sync_duplicate_analyses(conn: Any) -> None:
 
     for row in duplicate_hashes:
         members = conn.execute(
-            """SELECT id, filename
-               FROM files
-               WHERE content_hash = ?
-               ORDER BY modified_at ASC, path ASC""",
+            """SELECT f.id, f.filename
+               FROM files f
+               JOIN scan_files sf ON sf.file_id = f.id
+               JOIN scans s ON s.id = sf.scan_id
+               WHERE f.content_hash = ? AND s.scan_type = 'script'
+               ORDER BY f.modified_at ASC, f.path ASC""",
             (row["content_hash"],),
         ).fetchall()
         if len(members) < 2:

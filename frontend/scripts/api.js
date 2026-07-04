@@ -39,7 +39,7 @@ export const api = {
   browse: (path = '') => request(`/browse?path=${encodeURIComponent(path)}`),
   quickPicks: () => request('/browse/quick-picks'),
   scanEstimate: (path) => request(`/scan/estimate?path=${encodeURIComponent(path)}`),
-  startScan: (path, name) => request('/scan', { method: 'POST', body: { path, name } }),
+  startScan: (path, name, runInBackground, type) => request('/scan', { method: 'POST', body: { path, name, run_in_background: runInBackground, scan_type: type } }),
   getScanStatus: (id) => request(`/scan/${id}`),
   cancelScan: (id) => request(`/scan/${id}/cancel`, { method: 'POST' }),
   getFiles: (params) => {

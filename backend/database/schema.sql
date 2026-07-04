@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS scans (
     total_bytes INTEGER NOT NULL DEFAULT 0,
     error_message TEXT NOT NULL DEFAULT '',
     cancel_requested INTEGER NOT NULL DEFAULT 0,
+    scan_type TEXT NOT NULL DEFAULT 'ai',
     started_at TEXT,
     completed_at TEXT
 );
